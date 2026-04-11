@@ -762,6 +762,7 @@ impl Frame for ConceptFrame {
 
     fn redraw(&mut self) {
         let showing_title_bar = self.showing_title_bar(&*self.inner.borrow());
+        let title_bar_height = if showing_title_bar { HEADER_SIZE } else { 0 };
 
         if showing_title_bar {
             self.reshape_title();
@@ -809,7 +810,7 @@ impl Frame for ConceptFrame {
             let pxcount = (scaled_header_height * scaled_header_width)
                 + max(
                     (width + 2 * BORDER_SIZE) * BORDER_SIZE * tp_surfaces_scale * tp_surfaces_scale,
-                    (height + HEADER_SIZE) * BORDER_SIZE * lr_surfaces_scale * lr_surfaces_scale,
+                    (height + title_bar_height) * BORDER_SIZE * lr_surfaces_scale * lr_surfaces_scale,
                 );
 
             pool.resize(4 * pxcount as usize)
@@ -1020,27 +1021,27 @@ impl Frame for ConceptFrame {
             let buffer = pool.buffer(
                 4 * (scaled_header_width * scaled_header_height) as i32,
                 (BORDER_SIZE * scales[LEFT]) as i32,
-                ((height + HEADER_SIZE) * scales[LEFT]) as i32,
+                ((height + title_bar_height) * scales[LEFT]) as i32,
                 4 * (BORDER_SIZE * scales[LEFT]) as i32,
                 wl_shm::Format::Argb8888,
             );
             parts[LEFT]
                 .subsurface
-                .set_position(-(BORDER_SIZE as i32), -(HEADER_SIZE as i32));
+                .set_position(-(BORDER_SIZE as i32), -(title_bar_height as i32));
             parts[LEFT].surface.attach(Some(&buffer), 0, 0);
             if self.surface_version >= 4 {
                 parts[LEFT].surface.damage_buffer(
                     0,
                     0,
                     (BORDER_SIZE * scales[LEFT]) as i32,
-                    ((height + HEADER_SIZE) * scales[LEFT]) as i32,
+                    ((height + title_bar_height) * scales[LEFT]) as i32,
                 );
             } else {
                 // surface is old and does not support damage_buffer, so we damage
                 // in surface coordinates and hope it is not rescaled
                 parts[LEFT]
                     .surface
-                    .damage(0, 0, BORDER_SIZE as i32, (height + HEADER_SIZE) as i32);
+                    .damage(0, 0, BORDER_SIZE as i32, (height + title_bar_height) as i32);
             }
             parts[LEFT].surface.commit();
 
@@ -1048,20 +1049,20 @@ impl Frame for ConceptFrame {
             let buffer = pool.buffer(
                 4 * (scaled_header_width * scaled_header_height) as i32,
                 (BORDER_SIZE * scales[RIGHT]) as i32,
-                ((height + HEADER_SIZE) * scales[RIGHT]) as i32,
+                ((height + title_bar_height) * scales[RIGHT]) as i32,
                 4 * (BORDER_SIZE * scales[RIGHT]) as i32,
                 wl_shm::Format::Argb8888,
             );
             parts[RIGHT]
                 .subsurface
-                .set_position(width as i32, -(HEADER_SIZE as i32));
+                .set_position(width as i32, -(title_bar_height as i32));
             parts[RIGHT].surface.attach(Some(&buffer), 0, 0);
             if self.surface_version >= 4 {
                 parts[RIGHT].surface.damage_buffer(
                     0,
                     0,
                     (BORDER_SIZE * scales[RIGHT]) as i32,
-                    ((height + HEADER_SIZE) * scales[RIGHT]) as i32,
+                    ((height + title_bar_height) * scales[RIGHT]) as i32,
                 );
             } else {
                 // surface is old and does not support damage_buffer, so we damage
@@ -1070,7 +1071,7 @@ impl Frame for ConceptFrame {
                     0,
                     0,
                     BORDER_SIZE as i32,
-                    (height + HEADER_SIZE) as i32,
+                    (height + title_bar_height) as i32,
                 );
             }
             parts[RIGHT].surface.commit();

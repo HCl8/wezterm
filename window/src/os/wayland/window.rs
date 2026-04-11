@@ -269,10 +269,8 @@ impl WaylandWindow {
             FallbackFrame::new(&window, shm, subcompositor, qh.clone())
                 .expect("failed to create csd frame")
         };
-        let hidden = match decor_mode {
-            Some(DecorationMode::Client) => false,
-            _ => true,
-        };
+        // RESIZE-only should not render SCTK fallback titlebar/buttons.
+        let hidden = !matches!(decor_mode, Some(DecorationMode::Client));
         window_frame.set_hidden(hidden);
         if !hidden {
             window_frame.resize(
@@ -1042,6 +1040,10 @@ impl WaylandWindowInner {
 
                     if let Some(text_input) = &state.text_input {
                         if let Some(input) = text_input.get_text_input_for_surface(&surface) {
+                            // On KDE Wayland, sending only cursor rectangle updates can
+                            // desynchronize text-input state and break IME input.
+                            // Keep text-input explicitly enabled in the same commit batch.
+                            input.enable();
                             input.set_cursor_rectangle(
                                 rect.min_x() as i32 / factor,
                                 rect.min_y() as i32 / factor,
