@@ -3,10 +3,12 @@ use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
+use smithay_client_toolkit::activation::{ActivationHandler, ActivationState, RequestData, RequestDataExt};
 use smithay_client_toolkit::compositor::{CompositorState, SurfaceData};
 use smithay_client_toolkit::data_device_manager::data_device::DataDevice;
 use smithay_client_toolkit::data_device_manager::data_source::CopyPasteSource;
 use smithay_client_toolkit::data_device_manager::DataDeviceManagerState;
+use smithay_client_toolkit::delegate_activation;
 use smithay_client_toolkit::globals::GlobalData;
 use smithay_client_toolkit::output::{OutputHandler, OutputState};
 use smithay_client_toolkit::primary_selection::device::PrimarySelectionDevice;
@@ -92,6 +94,7 @@ pub(super) struct WaylandState {
     pub(super) kde_blur_manager: Option<OrgKdeKwinBlurManager>,
     pub(super) ext_background_effect_manager: Option<ExtBackgroundEffectManagerV1>,
     pub(super) ext_background_effect_can_blur: bool,
+    pub(super) activation: Option<ActivationState>,
 }
 
 impl WaylandState {
@@ -107,6 +110,7 @@ impl WaylandState {
             globals.bind(qh, 1..=1, GlobalData).ok();
         let ext_background_effect_manager: Option<ExtBackgroundEffectManagerV1> =
             globals.bind(qh, 1..=1, GlobalData).ok();
+        let activation = ActivationState::bind(globals, qh).ok();
         let wayland_state = WaylandState {
             registry: RegistryState::new(globals),
             output: OutputState::new(globals, qh),
@@ -142,6 +146,7 @@ impl WaylandState {
             kde_blur_manager,
             ext_background_effect_manager,
             ext_background_effect_can_blur: false,
+            activation,
         };
         Ok(wayland_state)
     }
@@ -179,6 +184,19 @@ impl OutputHandler for WaylandState {
     }
 }
 
+impl ActivationHandler for WaylandState {
+    type RequestData = RequestData;
+
+    fn new_token(&mut self, token: String, data: &Self::RequestData) {
+        log::trace!("received activation token: {}", token);
+        if let Some(surface) = data.surface() {
+            if let Some(activation) = &self.activation {
+                activation.activate::<WaylandState>(surface, token);
+            }
+        }
+    }
+}
+
 delegate_registry!(WaylandState);
 
 delegate_shm!(WaylandState);
@@ -197,6 +215,8 @@ delegate_xdg_shell!(WaylandState);
 delegate_xdg_window!(WaylandState);
 
 delegate_primary_selection!(WaylandState);
+
+delegate_activation!(WaylandState);
 
 delegate_dispatch!(WaylandState: [ZwpTextInputManagerV3: GlobalData] => TextInputState);
 delegate_dispatch!(WaylandState: [ZwpTextInputV3: TextInputData] => TextInputState);

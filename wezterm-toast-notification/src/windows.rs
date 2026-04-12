@@ -86,7 +86,7 @@ fn show_notif_impl(toast: TN) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-pub fn show_notif(notif: TN) -> Result<(), Box<dyn std::error::Error>> {
+pub fn show_notif(notif: TN) -> Result<Option<u32>, Box<dyn std::error::Error>> {
     // We need to be in a different thread from the caller
     // in case we get called in the guts of a windows message
     // loop dispatch and are unable to pump messages
@@ -96,5 +96,5 @@ pub fn show_notif(notif: TN) -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    Ok(())
+    Ok(None)
 }

@@ -718,6 +718,10 @@ impl super::TermWindow {
                     if !key.is_modifier() {
                         context.invalidate();
                     }
+                    // Clear any pending notification for this pane on input
+                    if window_key.key_is_down && !key.is_modifier() {
+                        crate::frontend::clear_notification_for_pane(pane.pane_id());
+                    }
                 }
             }
             Key::Composed(s) => {
@@ -740,6 +744,8 @@ impl super::TermWindow {
                 }
                 self.maybe_scroll_to_bottom_for_input(&pane);
                 context.invalidate();
+                // Clear any pending notification for this pane on input
+                crate::frontend::clear_notification_for_pane(pane.pane_id());
             }
             Key::None => {}
         }

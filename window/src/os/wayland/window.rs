@@ -519,6 +519,13 @@ impl WindowOps for WaylandWindow {
         WaylandConnection::with_window_inner(self.0, move |inner| Ok(inner.restore()));
     }
 
+    fn focus(&self) {
+        WaylandConnection::with_window_inner(self.0, move |inner| {
+            inner.request_activation();
+            Ok(())
+        });
+    }
+
     fn config_did_change(&self, config: &ConfigHandle) {
         let config = config.clone();
         WaylandConnection::with_window_inner(self.0, move |inner| {
@@ -637,6 +644,29 @@ impl WaylandWindowInner {
         }
 
         self.do_paint().unwrap();
+    }
+
+    fn request_activation(&mut self) {
+        use smithay_client_toolkit::activation::RequestData;
+
+        let conn = WaylandConnection::get().unwrap().wayland();
+        let wayland_state = conn.wayland_state.borrow();
+
+        if let (Some(activation), Some(window)) = (&wayland_state.activation, &self.window) {
+            let qh = conn.event_queue.borrow().handle();
+            let surface = window.wl_surface().clone();
+
+            let request_data = RequestData {
+                app_id: Some("org.wezfurlong.wezterm".to_string()),
+                seat_and_serial: None,
+                surface: Some(surface),
+            };
+
+            activation.request_token(&qh, request_data);
+            log::trace!("Requested activation token for window focus");
+        } else {
+            log::trace!("xdg-activation not available, cannot focus window");
+        }
     }
 
     fn refresh_frame(&mut self) {

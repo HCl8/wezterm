@@ -148,7 +148,7 @@ pub fn initialize() {
     });
 }
 
-pub fn show_notif(toast: ToastNotification) -> Result<(), Box<dyn std::error::Error>> {
+pub fn show_notif(toast: ToastNotification) -> Result<Option<u32>, Box<dyn std::error::Error>> {
     initialize();
     unsafe {
         log::debug!("show_notif center.delegate is {:?}", CENTER.delegate());
@@ -200,5 +200,5 @@ pub fn show_notif(toast: ToastNotification) -> Result<(), Box<dyn std::error::Er
         );
     }
 
-    Ok(())
+    Ok(None)
 }

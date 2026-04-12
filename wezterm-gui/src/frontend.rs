@@ -7,15 +7,72 @@ use anyhow::{Context, Error};
 use config::keyassignment::{KeyAssignment, SpawnCommand};
 use config::{ConfigSubscription, NotificationHandling};
 use mux::client::ClientId;
+use mux::pane::PaneId;
 use mux::window::WindowId as MuxWindowId;
 use mux::{Mux, MuxNotification};
 use promise::{Future, Promise};
 use std::cell::RefCell;
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::rc::Rc;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock, Mutex};
 use wezterm_term::{Alert, ClipboardSelection};
 use wezterm_toast_notification::*;
+
+/// Global tracking of pane_id -> notification_id mapping.
+/// Used to close notifications when user types in the corresponding pane.
+static PANE_NOTIFICATIONS: LazyLock<Mutex<HashMap<PaneId, u32>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// Reverse mapping: notification_id -> pane_id.
+/// Used to find which pane to focus when notification is clicked.
+static NOTIFICATION_PANES: LazyLock<Mutex<HashMap<u32, PaneId>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// Register a notification ID for a pane
+fn register_notification(pane_id: PaneId, notif_id: u32) {
+    PANE_NOTIFICATIONS
+        .lock()
+        .unwrap()
+        .insert(pane_id, notif_id);
+    NOTIFICATION_PANES
+        .lock()
+        .unwrap()
+        .insert(notif_id, pane_id);
+}
+
+/// Clear and close the notification for a pane (if any)
+pub fn clear_notification_for_pane(pane_id: PaneId) {
+    if let Some(notif_id) = PANE_NOTIFICATIONS.lock().unwrap().remove(&pane_id) {
+        NOTIFICATION_PANES.lock().unwrap().remove(&notif_id);
+        wezterm_toast_notification::close(notif_id);
+    }
+}
+
+/// Focus the pane associated with a notification (called when notification is clicked)
+fn focus_pane_for_notification(notif_id: u32) {
+    let pane_id = NOTIFICATION_PANES.lock().unwrap().remove(&notif_id);
+    if let Some(pane_id) = pane_id {
+        PANE_NOTIFICATIONS.lock().unwrap().remove(&pane_id);
+
+        promise::spawn::spawn_into_main_thread(async move {
+            let mux = Mux::get();
+            // Focus the pane and its containing tab
+            if let Err(err) = mux.focus_pane_and_containing_tab(pane_id) {
+                log::error!("Error focusing pane from notification: {err:#}");
+                return;
+            }
+            // Also focus the GUI window
+            if let Some((_domain, window_id, _tab_id)) = mux.resolve_pane_id(pane_id) {
+                if let Some(fe) = try_front_end() {
+                    if let Some(gui_win) = fe.gui_window_for_mux_window(window_id) {
+                        gui_win.window.focus();
+                    }
+                }
+            }
+        })
+        .detach();
+    }
+}
 
 pub struct GuiFrontEnd {
     connection: Rc<Connection>,
@@ -127,7 +184,10 @@ impl GuiFrontEnd {
                                 // FIXME: if notification.focus is true, we should do
                                 // something here to arrange to focus pane_id when the
                                 // notification is clicked
-                                persistent_toast_notification(title, message);
+                                if let Some(notif_id) = persistent_toast_notification(title, message)
+                                {
+                                    register_notification(pane_id, notif_id);
+                                }
                             }
                         }
                     }
@@ -547,6 +607,9 @@ pub fn shutdown() {
 pub fn try_new() -> Result<Rc<GuiFrontEnd>, Error> {
     let front_end = GuiFrontEnd::try_new()?;
     FRONT_END.with(|f| *f.borrow_mut() = Some(Rc::clone(&front_end)));
+
+    // Register callback for notification click events to focus the corresponding pane
+    wezterm_toast_notification::set_on_click_callback(focus_pane_for_notification);
 
     let config_subscription = config::subscribe_to_config_reload({
         move || {

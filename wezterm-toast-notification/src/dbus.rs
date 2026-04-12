@@ -88,21 +88,34 @@ impl Reason {
     }
 }
 
-async fn show_notif_impl(notif: ToastNotification) -> Result<(), Box<dyn std::error::Error>> {
+/// Show notification and listen for events in a single connection.
+/// Returns the notification ID immediately via the channel, then continues
+/// listening for click/close events in the background.
+async fn show_and_listen(
+    notif: ToastNotification,
+    tx: std::sync::mpsc::SyncSender<Option<u32>>,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let connection = zbus::ConnectionBuilder::session()?.build().await?;
-
     let proxy = NotificationsProxy::new(&connection).await?;
     let caps = proxy.get_capabilities().await?;
 
     if notif.url.is_some() && !caps.iter().any(|cap| cap == "actions") {
-        // Server doesn't support actions, so skip showing this notification
-        // because it might have text that says "click to see more"
-        // and that just wouldn't work.
+        let _ = tx.send(None);
         return Ok(());
     }
 
     let mut hints = HashMap::new();
-    hints.insert("urgency", Value::U8(2 /* Critical */));
+    hints.insert("urgency", Value::U8(1 /* Normal */));
+
+    // Build actions list: always include "default" for click-to-focus
+    let actions: Vec<&str> = if notif.url.is_some() {
+        vec!["default", "Focus", "show", "Show"]
+    } else if caps.iter().any(|cap| cap == "actions") {
+        vec!["default", "Focus"]
+    } else {
+        vec![]
+    };
+
     let notification = proxy
         .notify(
             "wezterm",
@@ -110,28 +123,44 @@ async fn show_notif_impl(notif: ToastNotification) -> Result<(), Box<dyn std::er
             "org.wezfurlong.wezterm",
             &notif.title,
             &notif.message,
-            if notif.url.is_some() {
-                &["show", "Show"]
-            } else {
-                &[]
-            },
+            &actions,
             &hints,
             notif.timeout.map(|d| d.as_millis() as _).unwrap_or(0),
         )
         .await?;
 
-    let (mut invoked_stream, abort_invoked) = abortable(proxy.receive_action_invoked().await?);
-    let (mut closed_stream, abort_closed) = abortable(proxy.receive_notification_closed().await?);
+    // Send the notification ID back immediately
+    let _ = tx.send(Some(notification));
 
-    futures_util::try_join!(
+    // Now listen for events while keeping the connection alive
+    let invoked_stream = proxy.receive_action_invoked().await?;
+    let closed_stream = proxy.receive_notification_closed().await?;
+
+    let (mut invoked_stream, abort_invoked) = abortable(invoked_stream);
+    let (mut closed_stream, abort_closed) = abortable(closed_stream);
+
+    let notif_url = notif.url;
+
+    let _ = futures_util::try_join!(
         async {
             while let Some(signal) = invoked_stream.next().await {
-                let args = signal.args()?;
-                if args.nid == notification {
-                    if let Some(url) = notif.url.as_ref() {
-                        wezterm_open_url::open_url(url);
-                        abort_closed.abort();
-                        break;
+                if let Ok(args) = signal.args() {
+                    if args.nid == notification {
+                        match args.action_key.as_str() {
+                            "default" => {
+                                crate::invoke_on_click(notification);
+                                abort_closed.abort();
+                                break;
+                            }
+                            "show" => {
+                                if let Some(url) = notif_url.as_ref() {
+                                    wezterm_open_url::open_url(url);
+                                }
+                                abort_closed.abort();
+                                break;
+                            }
+                            _ => {}
+                        }
                     }
                 }
             }
@@ -139,28 +168,47 @@ async fn show_notif_impl(notif: ToastNotification) -> Result<(), Box<dyn std::er
         },
         async {
             while let Some(signal) = closed_stream.next().await {
-                let args = signal.args()?;
-                let _reason = Reason::new(args.reason);
-                if args.nid == notification {
-                    abort_invoked.abort();
-                    break;
+                if let Ok(args) = signal.args() {
+                    if args.nid == notification {
+                        abort_invoked.abort();
+                        break;
+                    }
                 }
             }
             Ok(())
         }
-    )?;
+    );
 
     Ok(())
 }
 
-pub fn show_notif(notif: ToastNotification) -> Result<(), Box<dyn std::error::Error>> {
-    // Run this in a separate thread as we don't know if dbus or the notification
-    // service on the other end are up, and we'd otherwise block for some time.
+pub fn show_notif(notif: ToastNotification) -> Result<Option<u32>, Box<dyn std::error::Error>> {
+    let (tx, rx) = std::sync::mpsc::sync_channel(1);
+
     std::thread::spawn(move || {
-        let res = async_io::block_on(async move { show_notif_impl(notif).await });
+        let res = async_io::block_on(show_and_listen(notif, tx));
         if let Err(err) = res {
             log::error!("while showing notification: {:#}", err);
         }
     });
-    Ok(())
+
+    // Wait for the notification ID with a short timeout
+    match rx.recv_timeout(std::time::Duration::from_secs(5)) {
+        Ok(nid) => Ok(nid),
+        Err(_) => Ok(None),
+    }
+}
+
+pub fn close_notif(nid: u32) {
+    std::thread::spawn(move || {
+        let res = async_io::block_on(async move {
+            let connection = zbus::ConnectionBuilder::session()?.build().await?;
+            let proxy = NotificationsProxy::new(&connection).await?;
+            proxy.close_notification(nid).await?;
+            Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
+        });
+        if let Err(err) = res {
+            log::error!("while closing notification: {:#}", err);
+        }
+    });
 }
