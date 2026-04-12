@@ -106,6 +106,18 @@ async fn show_and_listen(
 
     let mut hints = HashMap::new();
     hints.insert("urgency", Value::U8(1 /* Normal */));
+    // Request notification to stay in notification center after timeout
+    // (supported by KDE Plasma, GNOME, and other compliant servers)
+    hints.insert("resident", Value::Bool(true));
+    // Ensure notification is saved to history/notification list
+    hints.insert("transient", Value::Bool(false));
+    // KDE-specific: link to desktop entry for theming and grouping
+    hints.insert("desktop-entry", Value::Str("org.wezfurlong.wezterm".into()));
+    // KDE-specific: event ID for user-configurable notification settings
+    // Users can configure behavior in System Settings > Notifications > Applications
+    if let Some(event_id) = &notif.event_id {
+        hints.insert("x-kde-eventId", Value::Str(event_id.as_str().into()));
+    }
 
     // Build actions list: always include "default" for click-to-focus
     let actions: Vec<&str> = if notif.url.is_some() {

@@ -1,0 +1,41 @@
+[Global]
+IconName=org.wezfurlong.wezterm
+Name=WezTerm
+Name[zh_CN]=WezTerm 终端
+Comment=WezTerm Terminal Emulator Notifications
+Comment[zh_CN]=WezTerm 终端模拟器通知
+
+[Event/bell]
+Name=Terminal Bell
+Name[zh_CN]=终端响铃
+Comment=A terminal bell was triggered
+Comment[zh_CN]=终端触发了响铃
+Action=Popup
+
+[Event/alert]
+Name=Terminal Alert
+Name[zh_CN]=终端警告
+Comment=An alert notification from a terminal application
+Comment[zh_CN]=来自终端应用的警告通知
+Action=Popup|History
+
+[Event/toast]
+Name=Terminal Notification
+Name[zh_CN]=终端通知
+Comment=A notification from a terminal application (OSC 9/777)
+Comment[zh_CN]=来自终端应用的通知 (OSC 9/777)
+Action=Popup|History
+
+[Event/command-complete]
+Name=Command Complete
+Name[zh_CN]=命令完成
+Comment=A long-running command has completed
+Comment[zh_CN]=一个长时间运行的命令已完成
+Action=Popup|History
+
+[Event/output]
+Name=Terminal Output
+Name[zh_CN]=终端输出
+Comment=New output in an unfocused terminal
+Comment[zh_CN]=未聚焦终端中有新输出
+Action=History

@@ -10,6 +10,9 @@ pub struct ToastNotification {
     pub message: String,
     pub url: Option<String>,
     pub timeout: Option<std::time::Duration>,
+    /// KDE notification event ID (matches events in wezterm.notifyrc)
+    /// Common values: "toast", "alert", "bell", "command-complete", "output"
+    pub event_id: Option<String>,
 }
 
 impl ToastNotification {
@@ -85,6 +88,7 @@ pub fn persistent_toast_notification_with_click_to_open_url(title: &str, message
         message: message.to_string(),
         url: Some(url.to_string()),
         timeout: None,
+        event_id: Some("toast".to_string()),
     });
 }
 
@@ -95,6 +99,7 @@ pub fn persistent_toast_notification(title: &str, message: &str) -> Option<u32> 
         url: None,
         // Auto-hide after 30 seconds (notification goes to notification list, not closed)
         timeout: Some(std::time::Duration::from_secs(30)),
+        event_id: Some("toast".to_string()),
     })
 }
 
